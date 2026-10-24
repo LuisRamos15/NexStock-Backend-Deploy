@@ -1,0 +1,43 @@
+spring:
+  data:
+    mongodb:
+      uri: ${MONGODB_URI}
+      database: inventario_dev
+      auto-index-creation: true
+
+  application:
+    name: inventario-b-api
+
+server:
+  port: ${PORT:8080}
+  error:
+    include-message: always
+    include-binding-errors: always
+
+app:
+  jwt:
+    secret: ${JWT_SECRET}
+    expiration-minutes: 120
+
+  stock:
+    low-threshold: 5
+
+  cors:
+    allowed-origin: ${FRONTEND_URL:http://localhost:5173}
+
+  admin:
+    username: ${ADMIN_INITIAL_USERNAME:admin}
+    password: ${ADMIN_INITIAL_PASSWORD:}
+
+springdoc:
+  packages-to-scan: Control_inventario.control_inventario.controlador
+  paths-to-match: /api/**
+  swagger-ui:
+    path: /swagger-ui
+  api-docs:
+    path: /v3/api-docs
+
+logging:
+  level:
+    org.springdoc: INFO
+    org.springframework.web: INFO

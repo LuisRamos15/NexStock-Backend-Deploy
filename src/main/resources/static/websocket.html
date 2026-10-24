@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Inventario — Dashboard de Pruebas (Backend)</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"/>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+    <style>
+        :root{
+          --blue:#1976d2; --green:#4caf50; --amber:#ff9800; --red:#f44336; --muted:#777;
+          --bg:#f5f5f5; --card:#fff; --line:#e9e9e9; --text:#333;
+        }
+        html,body{margin:0;background:var(--bg);color:var(--text);font-family:Segoe UI,Roboto,Arial,sans-serif}
+        .header{background:var(--blue);color:#fff;padding:12px 16px}
+        .header h1{margin:0;font-size:20px;display:flex;gap:10px;align-items:center}
+        .toolbar{display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap}
+        .toolbar input{padding:8px 10px;border:1px solid #cfd8dc;border-radius:6px;min-width:260px}
+        .toolbar button{background:var(--blue);color:#fff;border:0;border-radius:6px;padding:8px 12px;cursor:pointer;font-weight:600}
+        .chip{display:inline-flex;align-items:center;gap:6px;background:#e3f2fd;color:#0d47a1;border:1px solid #bbdefb;border-radius:999px;padding:4px 10px;font-size:12px}
+        .chip.off{background:#ffecec;color:#c62828;border-color:#ffcdd2}
+        .wrap{max-width:1150px;margin:0 auto;padding:14px}
+        .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;margin:12px 0}
+        .stat-card{background:var(--card);padding:16px;border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,.06);display:flex;align-items:center;gap:12px;border:1px solid var(--line)}
+        .stat-icon{width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:20px}
+        .primary{background:var(--blue)} .warning{background:var(--amber)} .success{background:var(--green)} .danger{background:var(--red)}
+        .grid-2{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:12px}
+        .card{background:var(--card);border:1px solid var(--line);border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,.06);padding:14px}
+        .card h2{margin:0 0 8px;font-size:16px;color:var(--blue)}
+        .muted{color:var(--muted);font-size:12px}
+        table{width:100%;border-collapse:collapse}
+        th,td{padding:10px;border-bottom:1px solid var(--line);text-align:left}
+        th{background:#f8f9fb}
+        .badge{display:inline-block;padding:3px 8px;border-radius:12px;background:#e3f2fd;color:#1565c0;font-weight:600;font-size:12px;border:1px solid #bbdefb}
+        #alertasList{list-style:none;padding:0;margin:10px 0;display:grid;gap:8px}
+        #alertasList li{background:#fff;border-left:4px solid var(--red);padding:8px 10px;border-radius:6px;border:1px solid var(--line)}
+        #liveTable tbody tr:nth-child(odd){background:#fafafa}
+        .ok{color:var(--green);font-weight:700}
+        .bad{color:var(--red);font-weight:700}
+        .btn{background:#1976d2;color:#fff;border:0;border-radius:6px;padding:8px 12px;cursor:pointer;font-weight:600}
+        .btn.gray{background:#607d8b}
+        .btn.green{background:#4caf50}
+        .btn.red{background:#f44336}
+        .btn:disabled{opacity:.6;cursor:not-allowed}
+        .btns{display:flex;gap:10px;flex-wrap:wrap}
+    </style>
+</head>
+<body>
+<div class="header">
+    <div class="wrap">
+        <h1><i class="fas fa-warehouse"></i> Dashboard de Control de Inventario — Pruebas</h1>
+        <div class="toolbar">
+            <input id="jwtInput" type="text" placeholder="Pega aquí tu JWT (Bearer)…">
+            <button id="btnGuardarToken">Guardar token</button>
+            <span id="authChip" class="chip off"><i class="fas fa-lock"></i> Auth: OFF</span>
+            <span id="wsChip" class="chip off"><i class="fas fa-broadcast-tower"></i> WS: OFF</span>
+        </div>
+    </div>
+</div>
+
+<div class="wrap">
+    <!-- KPIs -->
+    <div class="stats-grid">
+        <div class="stat-card"><div class="stat-icon primary"><i class="fas fa-boxes"></i></div><div><h3 style="margin:0 0 4px">Total Productos</h3><div id="statProductos" style="font-size:24px;font-weight:800">—</div></div></div>
+        <div class="stat-card"><div class="stat-icon warning"><i class="fas fa-exclamation-triangle"></i></div><div><h3 style="margin:0 0 4px">Stock Bajo</h3><div id="statBajo" style="font-size:24px;font-weight:800">—</div></div></div>
+        <div class="stat-card"><div class="stat-icon success"><i class="fas fa-arrow-up"></i></div><div><h3 style="margin:0 0 4px">Movimientos Hoy</h3><div id="statMovsHoy" style="font-size:24px;font-weight:800">—</div></div></div>
+        <div class="stat-card"><div class="stat-icon danger"><i class="fas fa-bell"></i></div><div><h3 style="margin:0 0 4px">Alertas Activas</h3><div id="statAlertas" style="font-size:24px;font-weight:800">—</div></div></div>
+    </div>
+
+    <!-- Gráficos y Top -->
+    <div class="grid-2">
+        <div class="card">
+            <h2>Movimientos por Día <span id="spinMov" class="muted">Cargando…</span></h2>
+            <canvas id="chartMovimientos" height="200"></canvas>
+        </div>
+        <div class="card">
+            <h2>Top Productos (Rotación) <span id="spinTop" class="muted">Cargando…</span></h2>
+            <table>
+                <thead><tr><th>#</th><th>Producto</th><th>SKU</th><th>Movs</th></tr></thead>
+                <tbody id="topTbody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Alertas -->
+    <div class="card" style="margin-top:12px">
+        <h2>Alertas de Stock (Tiempo Real)</h2>
+        <ul id="alertasList"></ul>
+    </div>
+
+    <!-- Movimientos en vivo -->
+    <div class="card" style="margin-top:12px">
+        <h2>Movimientos en Vivo</h2>
+        <table id="liveTable">
+            <thead><tr><th>Fecha</th><th>Tipo</th><th>Producto</th><th>SKU</th><th>Cantidad</th><th>Usuario</th><th>Stock</th></tr></thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <!-- Reportes -->
+    <div class="card" style="margin-top:12px">
+        <h2>Reportes (descarga con JWT)</h2>
+        <div class="btns">
+            <button class="btn" onclick="downloadReport('/api/reportes/inventario/pdf','inventario.pdf')">
+                <i class="fas fa-file-pdf"></i>&nbsp; Inventario (PDF)
+            </button>
+            <button class="btn gray" onclick="downloadReport('/api/reportes/movimientos/pdf','movimientos.pdf')">
+                <i class="fas fa-file-pdf"></i>&nbsp; Movimientos (PDF)
+            </button>
+            <button class="btn green" onclick="downloadReport('/api/reportes/inventario/excel','inventario.xlsx')">
+                <i class="fas fa-file-excel"></i>&nbsp; Inventario (Excel)
+            </button>
+        </div>
+        <p class="muted" style="margin-top:8px">
+            * El botón Excel requiere que tengas el endpoint <code>/api/reportes/inventario/excel</code> habilitado con Apache POI.
+        </p>
+    </div>
+</div>
+
+<script>
+    // ===== Config / Estado =====
+    const BASE_URL = location.origin;
+    let TOKEN = localStorage.getItem('token') || '';
+    let stomp = null;
+    let wsConnected = false;
+    let chartMov = null;
+
+    // Memoria para evitar duplicados visuales de WS
+    const seenMovements = new Map();
+    function movementKey(m){
+      const f = (m.fecha || m.timestamp || m.createdAt || m.fechaHora || '').toString().slice(0,19);
+      return [m.id||m._id, m.productoId, m.sku, m.tipo, m.cantidad, m.stockDespues, f].join('|');
+    }
+    function gcSeen(){
+      const now = Date.now();
+      for(const [k,t] of seenMovements.entries()){
+        if(now - t > 5*60*1000) seenMovements.delete(k);
+      }
+    }
+
+    // ===== Utilidades =====
+    function setAuthChip(on){ const el=document.getElementById('authChip'); el.classList.toggle('off',!on); el.innerHTML = `<i class="fas fa-lock${on?'-open':''}"></i> Auth: ${on?'ON':'OFF'}`; }
+    function setWsChip(on){ const el=document.getElementById('wsChip'); el.classList.toggle('off',!on); el.innerHTML = `<i class="fas fa-broadcast-tower"></i> WS: ${on?'ON':'OFF'}`; }
+    function auth(){ return TOKEN ? { Authorization: 'Bearer '+TOKEN } : {}; }
+
+    async function getJSON(url){
+      const r = await fetch(url, { headers: { 'Accept':'application/json', ...auth() } });
+      if(!r.ok){
+        const txt = await r.text();
+        if(r.status===401 || r.status===403){
+          setAuthChip(false);
+          alert('⚠️ Necesitas un JWT válido para ver el dashboard y descargar reportes.\nPega tu token arriba y pulsa "Guardar token".');
+        }
+        throw new Error(txt || r.statusText);
+      }
+      setAuthChip(true);
+      return r.json();
+    }
+
+    // Descargar con JWT
+    async function downloadReport(path, filename){
+      try{
+        const r = await fetch(`${BASE_URL}${path}`, { headers: { ...auth() } });
+        if(!r.ok){
+          const txt = await r.text();
+          throw new Error(txt || r.statusText);
+        }
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+        URL.revokeObjectURL(url); a.remove();
+      }catch(e){
+        alert('No se pudo descargar: ' + e.message);
+      }
+    }
+
+    const fmt = iso => { try{ const d=new Date(iso); return d.toISOString().replace('T',' ').substring(0,19); }catch{ return iso; } };
+    window.injectToken = t => { TOKEN = t; localStorage.setItem('token', t); document.getElementById('jwtInput').value = t; setAuthChip(!!t); alert('Token guardado'); };
+
+    // ===== Dashboard =====
+    async function actualizarStats(){
+      const data = await getJSON(`${BASE_URL}/api/dashboard/resumen`);
+      document.getElementById('statProductos').textContent = data.totalProductos ?? '—';
+      document.getElementById('statBajo').textContent      = data.stockBajo ?? '—';
+      document.getElementById('statMovsHoy').textContent   = data.movimientosHoy ?? '—';
+      document.getElementById('statAlertas').textContent   = data.alertasActivas ?? '—';
+    }
+
+    async function cargarMovimientosPorDia(){
+      document.getElementById('spinMov').textContent='Cargando…';
+      try{
+        const data = await getJSON(`${BASE_URL}/api/dashboard/movimientos-por-dia`);
+        const labels   = data.map(d => d.fecha);
+        const entradas = data.map(d => d.entradas || 0);
+        const salidas  = data.map(d => d.salidas  || 0);
+        const ctx = document.getElementById('chartMovimientos').getContext('2d');
+        if(chartMov) chartMov.destroy();
+        chartMov = new Chart(ctx, {
+          type:'bar',
+          data:{ labels, datasets:[
+            {label:'Entradas', data:entradas, backgroundColor:'#4caf50'},
+            {label:'Salidas',  data:salidas,  backgroundColor:'#f44336'}
+          ]},
+          options:{ responsive:true, plugins:{ tooltip:{mode:'index',intersect:false} } }
+        });
+      } finally { document.getElementById('spinMov').textContent=''; }
+    }
+
+    async function cargarTopProductos(){
+      document.getElementById('spinTop').textContent='Cargando…';
+      try{
+        const rows = await getJSON(`${BASE_URL}/api/dashboard/top-productos`);
+        const tb = document.getElementById('topTbody'); tb.innerHTML='';
+        (rows||[]).forEach((r,i)=>{
+          tb.insertAdjacentHTML('beforeend', `
+            <tr>
+              <td>${i+1}</td>
+              <td>${r.nombre||'—'}</td>
+              <td>${r.sku||'—'}</td>
+              <td><span class="badge">${r.totalMovimientos??0}</span></td>
+            </tr>
+          `);
+        });
+      } finally { document.getElementById('spinTop').textContent=''; }
+    }
+
+    // ===== Alertas y Live =====
+    function pushAlerta(a){
+      const li = document.createElement('li');
+      li.innerHTML = `<strong>${a.productoNombre||a.nombre||'Producto'}</strong> — SKU: ${a.sku||'-'} · Stock: <b>${a.stockActual??'-'}</b> (min ${a.minimo??'-'})`;
+      document.getElementById('alertasList').prepend(li);
+      // Si quieres sonido rápido:
+      // new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg').play();
+    }
+
+    function pushMovimiento(m){
+      gcSeen();
+      const key = movementKey(m);
+      if(seenMovements.has(key)) return;
+      seenMovements.set(key, Date.now());
+
+      const fechaRaw = m.fecha || m.timestamp || m.createdAt || m.fechaHora || new Date().toISOString();
+      const tr = document.createElement('tr');
+      const ok = (m.tipo||'').toUpperCase()==='ENTRADA';
+      tr.innerHTML = `
+        <td>${fmt(fechaRaw)}</td>
+        <td class="${ok?'ok':'bad'}">${(m.tipo||'').toUpperCase()}</td>
+        <td>${m.productoNombre || m.nombreProducto || '-'}</td>
+        <td>${m.sku || '-'}</td>
+        <td>${m.cantidad ?? 0}</td>
+        <td>${m.usuario || m.usuarioNombre || '-'}</td>
+        <td>${m.stockAntes ?? '-'} → <b>${m.stockDespues ?? '-'}</b></td>
+      `;
+      const tb = document.querySelector('#liveTable tbody');
+      tb.prepend(tr);
+      const rows = tb.querySelectorAll('tr'); if(rows.length>50) rows[rows.length-1].remove();
+    }
+
+    // ===== WebSocket =====
+    function desconectarWS(cb){
+      try{
+        if(stomp){
+          const s = stomp; stomp = null; wsConnected = false;
+          s.disconnect(()=>{ setWsChip(false); if(cb) cb(); });
+        }else{ if(cb) cb(); }
+      }catch{ if(cb) cb(); }
+    }
+
+    function conectarWS(){
+      if(wsConnected) return;
+      const sock = new SockJS(`${BASE_URL}/ws`);
+      stomp = Stomp.over(sock); stomp.debug = null;
+      const headers = TOKEN ? { Authorization: 'Bearer '+TOKEN } : {};
+      stomp.connect(headers, ()=>{
+        wsConnected = true; setWsChip(true);
+        stomp.subscribe('/topic/alertas', msg => {
+          try{ const a = JSON.parse(msg.body); pushAlerta(a); actualizarStats(); }catch(e){ console.warn(e); }
+        });
+        stomp.subscribe('/topic/movimientos', msg => {
+          try{ const m = JSON.parse(msg.body); pushMovimiento(m); actualizarStats(); cargarMovimientosPorDia(); cargarTopProductos(); }catch(e){ console.warn(e); }
+        });
+      }, err => { console.error('WS error', err); wsConnected = false; setWsChip(false); });
+    }
+
+    // ===== Inicio =====
+    async function initDashboard(){
+      document.getElementById('jwtInput').value = TOKEN || '';
+      setAuthChip(!!TOKEN);
+      try{
+        await actualizarStats();
+        await Promise.all([cargarMovimientosPorDia(), cargarTopProductos()]);
+      }catch(e){ /* si no hay token válido, ya se avisó */ }
+      conectarWS();
+    }
+
+    document.getElementById('btnGuardarToken').addEventListener('click', ()=>{
+      const t = document.getElementById('jwtInput').value.trim();
+      if(!t){ alert('Pega un JWT primero.'); return; }
+      TOKEN = t; localStorage.setItem('token', t); setAuthChip(true);
+      desconectarWS(initDashboard);
+    });
+
+    window.addEventListener('beforeunload', ()=>desconectarWS());
+    document.addEventListener('DOMContentLoaded', initDashboard);
+</script>
+</body>
+</html>
